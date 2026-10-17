@@ -1,11 +1,132 @@
 <!DOCTYPE html>
-<html><body style="font-family:sans-serif;padding:16px">
-<h2>Prueba de conexión</h2>
-<pre id="r">Probando...</pre>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="NBA Predicciones">
+<title>NBA Predicciones</title>
+<style>
+body{font-family:-apple-system,sans-serif;margin:0;padding:16px;background:#0f172a;color:#e2e8f0}
+h1{font-size:22px}
+h2{font-size:15px;color:#fb923c;margin:18px 0 6px}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 4px}
+.nav button{background:#fb923c;border:0;border-radius:8px;padding:8px 14px;font-size:16px;color:#0f172a}
+.nav span{font-size:15px;text-align:center;flex:1}
+.p{background:#1e293b;border-radius:10px;padding:10px;margin:6px 0;display:flex;justify-content:space-between;gap:8px}
+.det{background:#162032;border-radius:10px;padding:10px;margin:-2px 0 8px;font-size:14px;line-height:1.6}
+.bar{display:flex;height:22px;border-radius:6px;overflow:hidden;margin:6px 0;font-size:12px;color:#0f172a}
+.bar div{display:flex;align-items:center;justify-content:center}
+.nota{font-size:12px;color:#94a3b8;margin-top:8px}
+.estado{font-size:13px;color:#94a3b8;text-align:center;margin:10px 0}
+</style></head><body>
+<h1>🏀 Partidos NBA</h1>
+<div class="nav">
+<button onclick="cambiarDia(-1)">‹</button>
+<span id="fechaTxt"></span>
+<button onclick="cambiarDia(1)">›</button>
+</div>
+<div class="nav"><button onclick="irHoy()" style="flex:1;background:#334155;color:#e2e8f0">Hoy</button></div>
+<div id="app">Cargando...</div>
 <script>
-fetch("https://api.balldontlie.io/v1/teams",{headers:{"Authorization":"77dcb5c2-8d60-4854-8d4a-b516e26d9b90"}})
-  .then(r=>r.json())
-  .then(d=>document.getElementById("r").textContent=JSON.stringify(d,null,2))
-  .catch(e=>document.getElementById("r").textContent="ERROR: "+e.message);
-</script>
-</body></html>
+const $=id=>document.getElementById(id);
+const API="https://api.balldontlie.io/v1";
+const KEY="77dcb5c2-8d60-4854-8d4a-b516e26d9b90";
+let M={};
+const hoyStr=()=>new Date().toLocaleDateString("en-CA");
+let fecha=hoyStr();
+
+function sumarDias(f,n){return new Date(new Date(f+"T12:00:00Z").getTime()+n*86400000).toISOString().slice(0,10);}
+function cambiarDia(n){fecha=sumarDias(fecha,n);cargar();}
+function irHoy(){fecha=hoyStr();cargar();}
+
+// Cola simple para respetar 5 consultas/min (una cada ~13s si hay que pedir varias)
+let colaUltima=0;
+async function api(ruta){
+  const espera=Math.max(0,13000-(Date.now()-colaUltima));
+  if(espera>0)await new Promise(r=>setTimeout(r,espera));
+  colaUltima=Date.now();
+  const r=await fetch(API+ruta,{headers:{"Authorization":KEY}});
+  if(r.status==429)throw new Error("Muchas consultas seguidas a la API. Espera un minuto y vuelve a intentar.");
+  if(r.status==401)throw new Error("Clave inválida.");
+  if(!r.ok)throw new Error("Error "+r.status);
+  return r.json();
+}
+
+async function cargar(){
+  const f=fecha;
+  const txt=new Date(f+"T12:00:00Z").toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"});
+  $("fechaTxt").textContent=(f===hoyStr()?"Hoy · ":"")+txt;
+  $("app").textContent="Cargando...";
+  M={};
+  try{
+    const d=await api("/games?dates[]="+f+"&per_page=50");
+    if(f!==fecha)return;
+    if(!d.data.length){$("app").textContent="No hay partidos este día.";return;}
+    let h="";
+    d.data.forEach(m=>{
+      M[m.id]=m;
+      const hora=new Date(m.date).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",timeZone:"America/Bogota"});
+      const sc=m.status!=="Final"&&!m.status.includes(":")?"":" ("+m.home_team_score+"-"+m.visitor_team_score+")";
+      h+='<div class="p" onclick="predecir('+m.id+')"><span>'+m.home_team.abbreviation+" vs "+m.visitor_team.abbreviation+sc+"</span><span>"+hora+'</span></div><div id="d'+m.id+'" class="det" style="display:none"></div>';
+    });
+    $("app").innerHTML=h;
+  }catch(e){$("app").textContent="Error: "+e.message;}
+}
+
+async function historialTemporada(season){
+  const k="games_"+season+"_"+new Date().toDateString();
+  const c=localStorage.getItem(k);
+  if(c)return JSON.parse(c);
+  let todos=[],cursor=null;
+  do{
+    const d=await api("/games?seasons[]="+season+"&per_page=100"+(cursor?"&cursor="+cursor:""));
+    todos=todos.concat(d.data.filter(g=>g.status==="Final"));
+    cursor=d.meta&&d.meta.next_cursor;
+  }while(cursor);
+  try{localStorage.setItem(k,JSON.stringify(todos));}catch(e){}
+  return todos;
+}
+
+function calcElo(juegos){
+  const R={},K=20,HA=70;
+  juegos.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  juegos.forEach(g=>{
+    const h=g.home_team.id,a=g.visitor_team.id;
+    const rh=R[h]??1500,ra=R[a]??1500;
+    const e=1/(1+Math.pow(10,-(rh+HA-ra)/400));
+    const s=g.home_team_score>g.visitor_team_score?1:g.home_team_score<g.visitor_team_score?0:0.5;
+    const dif=Math.abs(g.home_team_score-g.visitor_team_score);
+    const mult=Math.log(dif+1)*(2.2/((Math.abs(rh-ra))*0.001+2.2));
+    const cambio=K*mult*(s-e);
+    R[h]=rh+cambio;R[a]=ra-cambio;
+  });
+  return R;
+}
+function eloProb(R,h,a){
+  const dr=(R[h]??1500)+70-(R[a]??1500);
+  return 1/(1+Math.pow(10,-dr/400));
+}
+const pc=x=>(x*100).toFixed(0)+"%";
+
+async function predecir(id){
+  const box=$("d"+id);
+  if(box.style.display==="block"){box.style.display="none";return;}
+  box.style.display="block";
+  box.innerHTML='<div class="estado">Calculando (puede tardar por el límite de la API)...</div>';
+  const m=M[id];
+  try{
+    const season=m.season;
+    const juegos=await historialTemporada(season);
+    const R=calcElo(juegos);
+    const ph=eloProb(R,m.home_team.id,m.visitor_team.id);
+    box.innerHTML=
+      "<b>Probabilidad de victoria (Elo)</b><br>"+
+      '<div class="bar"><div style="width:'+pc(ph)+';background:#4ade80">'+m.home_team.abbreviation+" "+pc(ph)+'</div><div style="width:'+pc(1-ph)+';background:#f87171">'+m.visitor_team.abbreviation+" "+pc(1-ph)+"</div></div>"+
+      "Basado en "+juegos.length+" partidos jugados en la temporada "+season+"-"+(season+1)+
+      '<div class="nota">Elo con ventaja de local. Más adelante se suman el modelo de puntos totales, jugadores clave y ausencias. No es una certeza.</div>';
+  }catch(err){box.innerHTML='<div class="nota" style="color:#fca5a5">Error: '+err.message+'</div>';}
+}
+cargar();
+</script></body></html>
+
