@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html><body style="font-family:sans-serif;padding:16px">
+<h2>Prueba de conexión</h2>
+<pre id="r">Probando...</pre>
+<script>
+fetch("https://api.balldontlie.io/v1/teams",{headers:{"Authorization":"77dcb5c2-8d60-4854-8d4a-b516e26d9b90"}})
+  .then(r=>r.json())
+  .then(d=>document.getElementById("r").textContent=JSON.stringify(d,null,2))
+  .catch(e=>document.getElementById("r").textContent="ERROR: "+e.message);
+</script>
+</body></html>
