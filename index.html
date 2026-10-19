@@ -9,7 +9,6 @@
 <style>
 body{font-family:-apple-system,sans-serif;margin:0;padding:16px;background:#0f172a;color:#e2e8f0}
 h1{font-size:22px}
-h2{font-size:15px;color:#fb923c;margin:18px 0 6px}
 .nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 4px}
 .nav button{background:#fb923c;border:0;border-radius:8px;padding:8px 14px;font-size:16px;color:#0f172a}
 .nav span{font-size:15px;text-align:center;flex:1}
@@ -19,6 +18,10 @@ h2{font-size:15px;color:#fb923c;margin:18px 0 6px}
 .bar div{display:flex;align-items:center;justify-content:center}
 .nota{font-size:12px;color:#94a3b8;margin-top:8px}
 .estado{font-size:13px;color:#94a3b8;text-align:center;margin:10px 0}
+.lineaIn{display:flex;gap:8px;align-items:center;margin:8px 0}
+.lineaIn input{width:70px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px;text-align:center}
+.lineaIn button{background:#334155;color:#e2e8f0;border:0;border-radius:6px;padding:6px 10px}
+.mod{margin:2px 0;color:#cbd5e1}
 </style></head><body>
 <h1>🏀 Partidos NBA</h1>
 <div class="nav">
@@ -40,7 +43,6 @@ function sumarDias(f,n){return new Date(new Date(f+"T12:00:00Z").getTime()+n*864
 function cambiarDia(n){fecha=sumarDias(fecha,n);cargar();}
 function irHoy(){fecha=hoyStr();cargar();}
 
-// Cola simple para respetar 5 consultas/min (una cada ~13s si hay que pedir varias)
 let colaUltima=0;
 async function api(ruta){
   const espera=Math.max(0,13000-(Date.now()-colaUltima));
@@ -67,8 +69,7 @@ async function cargar(){
     d.data.forEach(m=>{
       M[m.id]=m;
       const hora=new Date(m.date).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",timeZone:"America/Bogota"});
-      const sc=m.status!=="Final"&&!m.status.includes(":")?"":" ("+m.home_team_score+"-"+m.visitor_team_score+")";
-      h+='<div class="p" onclick="predecir('+m.id+')"><span>'+m.home_team.abbreviation+" vs "+m.visitor_team.abbreviation+sc+"</span><span>"+hora+'</span></div><div id="d'+m.id+'" class="det" style="display:none"></div>';
+      h+='<div class="p" onclick="predecir('+m.id+')"><span>'+m.home_team.abbreviation+" vs "+m.visitor_team.abbreviation+"</span><span>"+hora+'</span></div><div id="d'+m.id+'" class="det" style="display:none"></div>';
     });
     $("app").innerHTML=h;
   }catch(e){$("app").textContent="Error: "+e.message;}
@@ -88,8 +89,8 @@ async function historialTemporada(season){
   return todos;
 }
 
-function calcElo(juegos){
-  const R={},K=20,HA=70;
+function calcElo(juegos,inicial){
+  const R=Object.assign({},inicial),K=20,HA=70;
   juegos.sort((a,b)=>new Date(a.date)-new Date(b.date));
   juegos.forEach(g=>{
     const h=g.home_team.id,a=g.visitor_team.id;
@@ -103,10 +104,40 @@ function calcElo(juegos){
   });
   return R;
 }
+function regresar(R,factor){
+  const out={};
+  Object.keys(R).forEach(id=>out[id]=1500+factor*(R[id]-1500));
+  return out;
+}
 function eloProb(R,h,a){
   const dr=(R[h]??1500)+70-(R[a]??1500);
   return 1/(1+Math.pow(10,-dr/400));
 }
+
+// Modelo de puntos: promedio de anotados/recibidos por equipo, regularizado hacia la liga
+function statsPuntos(juegos){
+  const T={},L={sf:0,n:0};
+  juegos.forEach(g=>{
+    T[g.home_team.id]=T[g.home_team.id]||{f:0,c:0,n:0};
+    T[g.visitor_team.id]=T[g.visitor_team.id]||{f:0,c:0,n:0};
+    T[g.home_team.id].f+=g.home_team_score;T[g.home_team.id].c+=g.visitor_team_score;T[g.home_team.id].n++;
+    T[g.visitor_team.id].f+=g.visitor_team_score;T[g.visitor_team.id].c+=g.home_team_score;T[g.visitor_team.id].n++;
+    L.sf+=g.home_team_score+g.visitor_team_score;L.n+=2;
+  });
+  const liga=L.n?L.sf/L.n:113;
+  return{T,liga};
+}
+function esperados(S,h,a){
+  const k=5,z={f:0,c:0,n:0};
+  const H=S.T[h]||z,A=S.T[a]||z;
+  const fH=(H.f+k*S.liga)/(H.n+k),cH=(H.c+k*S.liga)/(H.n+k);
+  const fA=(A.f+k*S.liga)/(A.n+k),cA=(A.c+k*S.liga)/(A.n+k);
+  const eh=(fH+cA)/2,ea=(fA+cH)/2;
+  return{eh,ea};
+}
+function erf(x){const s=x<0?-1:1;x=Math.abs(x);const a1=.254829592,a2=-.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=.3275911;const t=1/(1+p*x);const y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);return s*y;}
+function normCdf(x,mu,sd){return 0.5*(1+erf((x-mu)/(sd*Math.SQRT2)));}
+
 const pc=x=>(x*100).toFixed(0)+"%";
 
 async function predecir(id){
@@ -117,16 +148,41 @@ async function predecir(id){
   const m=M[id];
   try{
     const season=m.season;
-    const juegos=await historialTemporada(season);
-    const R=calcElo(juegos);
+    const juegosAct=await historialTemporada(season);
+    let inicialElo={};
+    if(juegosAct.length<10){
+      const juegosAnt=await historialTemporada(season-1);
+      const Rant=calcElo(juegosAnt,{});
+      inicialElo=regresar(Rant,0.75);
+    }
+    const R=calcElo(juegosAct,inicialElo);
     const ph=eloProb(R,m.home_team.id,m.visitor_team.id);
+
+    let juegosPts=juegosAct.length>=10?juegosAct:(await historialTemporada(season-1));
+    const S=statsPuntos(juegosPts);
+    const{eh,ea}=esperados(S,m.home_team.id,m.visitor_team.id);
+    const sdEquipo=11,sdTotal=Math.sqrt(2)*sdEquipo;
+    const total=eh+ea,spread=eh-ea;
+
     box.innerHTML=
       "<b>Probabilidad de victoria (Elo)</b><br>"+
       '<div class="bar"><div style="width:'+pc(ph)+';background:#4ade80">'+m.home_team.abbreviation+" "+pc(ph)+'</div><div style="width:'+pc(1-ph)+';background:#f87171">'+m.visitor_team.abbreviation+" "+pc(1-ph)+"</div></div>"+
-      "Basado en "+juegos.length+" partidos jugados en la temporada "+season+"-"+(season+1)+
-      '<div class="nota">Elo con ventaja de local. Más adelante se suman el modelo de puntos totales, jugadores clave y ausencias. No es una certeza.</div>';
+      "Basado en "+(juegosAct.length>=10?juegosAct.length+" partidos de esta temporada":"la temporada anterior, ajustado")+
+      "<h3 style='color:#fb923c;margin:14px 0 4px'>Puntos esperados</h3>"+
+      "<div class='mod'>"+m.home_team.abbreviation+": <b>"+eh.toFixed(1)+"</b> · "+m.visitor_team.abbreviation+": <b>"+ea.toFixed(1)+"</b></div>"+
+      "<div class='mod'>Total esperado: <b>"+total.toFixed(1)+"</b> puntos</div>"+
+      "<div class='mod'>Diferencia esperada (spread): <b>"+m.home_team.abbreviation+" "+(spread>=0?"+":"")+spread.toFixed(1)+"</b></div>"+
+      "<div class='lineaIn'><span>Más/menos de</span><input id='lineaTot' type='number' value='"+Math.round(total)+"'><button onclick=\"calcLinea("+total+","+sdTotal+")\">Calcular</button></div>"+
+      "<div id='resLinea' class='mod'></div>"+
+      '<div class="nota">Modelo normal sobre el promedio reciente de puntos de cada equipo. No incluye aún jugadores clave ni ausencias. No es una certeza.</div>';
   }catch(err){box.innerHTML='<div class="nota" style="color:#fca5a5">Error: '+err.message+'</div>';}
+}
+function calcLinea(total,sd){
+  const linea=parseFloat($("#lineaTot").value);
+  const pOver=1-normCdf(linea,total,sd);
+  $("#resLinea").innerHTML="Más de "+linea+": <b>"+pc(pOver)+"</b> · Menos de "+linea+": <b>"+pc(1-pOver)+"</b>";
 }
 cargar();
 </script></body></html>
+
 
