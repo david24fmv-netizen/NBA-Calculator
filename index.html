@@ -178,9 +178,9 @@ async function predecir(id){
   }catch(err){box.innerHTML='<div class="nota" style="color:#fca5a5">Error: '+err.message+'</div>';}
 }
 function calcLinea(total,sd){
-  const linea=parseFloat($("#lineaTot").value);
+  const linea=parseFloat($("lineaTot").value);
   const pOver=1-normCdf(linea,total,sd);
-  $("#resLinea").innerHTML="Más de "+linea+": <b>"+pc(pOver)+"</b> · Menos de "+linea+": <b>"+pc(1-pOver)+"</b>";
+  $("resLinea").innerHTML="Más de "+linea+": <b>"+pc(pOver)+"</b> · Menos de "+linea+": <b>"+pc(1-pOver)+"</b>";
 }
 cargar();
 </script></body></html>
