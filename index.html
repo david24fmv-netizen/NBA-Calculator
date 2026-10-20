@@ -114,7 +114,6 @@ function eloProb(R,h,a){
   return 1/(1+Math.pow(10,-dr/400));
 }
 
-// Modelo de puntos: promedio de anotados/recibidos por equipo, regularizado hacia la liga
 function statsPuntos(juegos){
   const T={},L={sf:0,n:0};
   juegos.forEach(g=>{
@@ -172,17 +171,18 @@ async function predecir(id){
       "<div class='mod'>"+m.home_team.abbreviation+": <b>"+eh.toFixed(1)+"</b> · "+m.visitor_team.abbreviation+": <b>"+ea.toFixed(1)+"</b></div>"+
       "<div class='mod'>Total esperado: <b>"+total.toFixed(1)+"</b> puntos</div>"+
       "<div class='mod'>Diferencia esperada (spread): <b>"+m.home_team.abbreviation+" "+(spread>=0?"+":"")+spread.toFixed(1)+"</b></div>"+
-      "<div class='lineaIn'><span>Más/menos de</span><input id='lineaTot' type='number' value='"+Math.round(total)+"'><button onclick=\"calcLinea("+total+","+sdTotal+")\">Calcular</button></div>"+
-      "<div id='resLinea' class='mod'></div>"+
+      "<div class='lineaIn'><span>Más/menos de</span><input id='lineaTot"+id+"' type='number' value='"+Math.round(total)+"'><button onclick=\"calcLinea("+id+","+total+","+sdTotal+")\">Calcular</button></div>"+
+      "<div id='resLinea"+id+"' class='mod'></div>"+
       '<div class="nota">Modelo normal sobre el promedio reciente de puntos de cada equipo. No incluye aún jugadores clave ni ausencias. No es una certeza.</div>';
   }catch(err){box.innerHTML='<div class="nota" style="color:#fca5a5">Error: '+err.message+'</div>';}
 }
-function calcLinea(total,sd){
-  const linea=parseFloat($("lineaTot").value);
+function calcLinea(id,total,sd){
+  const linea=parseFloat($("lineaTot"+id).value);
   const pOver=1-normCdf(linea,total,sd);
-  $("resLinea").innerHTML="Más de "+linea+": <b>"+pc(pOver)+"</b> · Menos de "+linea+": <b>"+pc(1-pOver)+"</b>";
+  $("resLinea"+id).innerHTML="Más de "+linea+": <b>"+pc(pOver)+"</b> · Menos de "+linea+": <b>"+pc(1-pOver)+"</b>";
 }
 cargar();
 </script></body></html>
+
 
 
